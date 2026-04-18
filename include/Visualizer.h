@@ -5,17 +5,22 @@
 #include "JobManager.h"
 #include <string>
 
+// Forward declaration
+class Scheduler;
+
 /**
  * Visualizer — renders GPU state as formatted ASCII output.
  *
- *   • NVIDIA-SMI-style GPU info table
- *   • ASCII memory bar
- *   • Block range table
- *   • Fragmentation summary
+ * Phase 2 additions:
+ *   • Priority column in running jobs table
+ *   • Pending queue display
+ *   • CPU buffer display
+ *   • Tick info in status panel
  */
 class Visualizer {
 public:
-  Visualizer(const GPUDevice &gpu, const JobManager &jobs);
+  Visualizer(const GPUDevice &gpu, const JobManager &jobs,
+             const Scheduler &sched);
 
   // Full NVIDIA-SMI-style info panel with running jobs table
   void printGPUInfo() const;
@@ -32,6 +37,12 @@ public:
   // Compact one-line utilization bar (shown after submit/release)
   void printQuickBar() const;
 
+  // Pending queue display
+  void printQueue() const;
+
+  // CPU buffer display
+  void printBuffer() const;
+
   // Print a horizontal separator
   static void line(int width = 79, char fill = '-', char edge = '+');
   static void doubleLine(int width = 79);
@@ -42,6 +53,7 @@ public:
 private:
   const GPUDevice &gpu_;
   const JobManager &jobs_;
+  const Scheduler &sched_;
 };
 
 #endif // VISUALIZER_H

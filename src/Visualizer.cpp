@@ -1,4 +1,5 @@
 #include "Visualizer.h"
+#include "Scheduler.h"
 #include <algorithm>
 #include <cmath>
 #include <iomanip>
@@ -8,13 +9,13 @@
 
 using namespace std;
 
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-Visualizer::Visualizer(const GPUDevice &gpu, const JobManager &jobs)
-    : gpu_(gpu), jobs_(jobs) {}
+Visualizer::Visualizer(const GPUDevice &gpu, const JobManager &jobs,
+                       const Scheduler &sched)
+    : gpu_(gpu), jobs_(jobs), sched_(sched) {}
 
 void Visualizer::line(int width, char fill, char edge) {
   cout << edge << string(width - 2, fill) << edge << endl;
@@ -30,7 +31,6 @@ static string padRight(const string &s, int width) {
   return s + string(width - s.size(), ' ');
 }
 
-// Repeat a (possibly multi-byte) string N times
 static string repeat(const string &s, int n) {
   string result;
   result.reserve(s.size() * n);
@@ -50,7 +50,7 @@ void Visualizer::printGPUInfo() const {
   cout << endl;
   line(W);
   cout << "| " << padRight("GPU Resource Manager Simulator", W - 25)
-       << padRight("v1.0", 21) << " |" << endl;
+       << padRight("v2.0", 21) << " |" << endl;
   cout << "| " << padRight("Driver Version: " + cfg.driverVer, W / 2 - 2)
        << "  " << padRight("CUDA Version: " + cfg.cudaVer, W / 2 - 3) << " |"
        << endl;
@@ -58,23 +58,22 @@ void Visualizer::printGPUInfo() const {
 
   // GPU Row Header
   cout << "| " << padRight("GPU", 4) << padRight("Name", 16)
-       << padRight("Bus-Id", 18) << "| " << padRight("Memory-Usage", 19) << "| "
-       << padRight("GPU-Util", 14) << " |" << endl;
+       << padRight("Bus-Id", 18) << "| " << padRight("Memory-Usage", 19)
+       << "| " << padRight("GPU-Util", 14) << " |" << endl;
   doubleLine(W);
 
   // GPU Row Data
   ostringstream memStr;
   memStr << gpu_.usedMemory() << " / " << cfg.totalVRAM << " Units";
   ostringstream utilStr;
-  utilStr << fixed << setprecision(0) << (gpu_.utilization() * 100)
-          << "%";
+  utilStr << fixed << setprecision(0) << (gpu_.utilization() * 100) << "%";
 
   cout << "| " << padRight("0", 4) << padRight(cfg.name, 16)
        << padRight(cfg.busId, 18) << "| " << padRight(memStr.str(), 19) << "| "
        << padRight(utilStr.str(), 14) << " |" << endl;
   line(W, '-', '+');
 
-  // Detailed specs row
+  // Detailed specs
   cout << "| " << padRight("Arch: " + cfg.architecture, 38)
        << padRight("Cores: " + to_string(cfg.computeCores), 18)
        << padRight("TDP: " + to_string(cfg.tdpWatts) + "W", 19) << " |"
@@ -91,16 +90,16 @@ void Visualizer::printGPUInfo() const {
 
   const auto &activeJobs = jobs_.activeJobs();
   if (activeJobs.empty()) {
-    cout << "| " << padRight("  No running jobs found.", W - 4) << " |" << endl;
+    cout << "| " << padRight("  No running jobs found.", W - 4) << " |"
+         << endl;
   } else {
-    cout << "| " << padRight("  JobID", 14) << padRight("Label", 7)
-         << padRight("Blocks", 20) << padRight("Memory", 12)
-         << padRight("Remaining", 11)
-         << padRight("Status", W - 2 - 2 - 14 - 7 - 20 - 12 - 11) << " |"
+    cout << "| " << padRight("  JobID", 12) << padRight("Label", 6)
+         << padRight("Blocks", 16) << padRight("Memory", 8)
+         << padRight("Priority", 10) << padRight("Remain", 8)
+         << padRight("Status", W - 2 - 2 - 12 - 6 - 16 - 8 - 10 - 8) << " |"
          << endl;
     line(W, '-', '|');
 
-    // Sort by start block for display
     vector<const Job *> sorted;
     for (auto &[id, job] : activeJobs)
       sorted.push_back(&job);
@@ -110,24 +109,18 @@ void Visualizer::printGPUInfo() const {
 
     for (auto *job : sorted) {
       ostringstream range;
-      range << job->startBlock << " – "
-            << (job->startBlock + job->memoryUnits - 1);
+      range << job->startBlock << "–" << (job->startBlock + job->memoryUnits - 1);
 
-      // Remaining time
-      string remStr;
-      int rem = jobs_.remainingSeconds(job->id);
-      if (rem < 0) {
-        remStr = "MANUAL";
-      } else {
-        remStr = to_string(rem) + "s";
-      }
+      string remStr = to_string(job->remainingTicks) + "t";
 
-      cout << "| " << padRight("  " + job->id, 14)
-           << padRight(string(1, job->label), 7) << padRight(range.str(), 20)
-           << padRight(to_string(job->memoryUnits), 12)
-           << padRight(remStr, 11)
-           << padRight("RUNNING", W - 2 - 2 - 14 - 7 - 20 - 12 - 11) << " |"
-           << endl;
+      cout << "| " << padRight("  " + job->id, 12)
+           << padRight(string(1, job->label), 6)
+           << padRight(range.str(), 16)
+           << padRight(to_string(job->memoryUnits), 8)
+           << padRight(priorityToString(job->basePriority), 10)
+           << padRight(remStr, 8)
+           << padRight("RUNNING", W - 2 - 2 - 12 - 6 - 16 - 8 - 10 - 8)
+           << " |" << endl;
     }
   }
   line(W);
@@ -140,25 +133,24 @@ void Visualizer::printGPUInfo() const {
 
 void Visualizer::printMemoryMap() const {
   const int BAR_WIDTH = 64;
-  const int INNER_W = BAR_WIDTH + 4; // consistent inner width for all rows
+  const int INNER_W = BAR_WIDTH + 4;
   int total = gpu_.config().totalVRAM;
   double scale = (double)BAR_WIDTH / total;
 
   cout << endl;
-  // Header
   {
     ostringstream hdr;
     hdr << "═ GPU Memory Map (" << total << " units) ";
     string h = hdr.str();
-    cout << "  ╔" << h << repeat("═", INNER_W - (int)h.size() + 2) << "╗" << endl;
+    cout << "  ╔" << h << repeat("═", INNER_W - (int)h.size() + 2) << "╗"
+         << endl;
   }
 
-  // ── Numbered ruler ──
+  // Numbered ruler
   int tickInterval = total / 4;
   if (tickInterval <= 0)
     tickInterval = total;
 
-  // Build number line and tick line (BAR_WIDTH wide, then pad to INNER_W)
   string numLine(BAR_WIDTH, ' ');
   string tickLine(BAR_WIDTH, '-');
 
@@ -169,7 +161,6 @@ void Visualizer::printMemoryMap() const {
 
     string label = to_string(val);
 
-    // For the last label, right-align it against the bar end
     if (val == total) {
       int startPos = BAR_WIDTH - (int)label.size();
       if (startPos < 0)
@@ -187,7 +178,7 @@ void Visualizer::printMemoryMap() const {
   cout << "  ║ " << padRight(numLine, INNER_W - 1) << "║" << endl;
   cout << "  ║ " << padRight(tickLine, INNER_W - 1) << "║" << endl;
 
-  // ── Memory bar ──
+  // Memory bar
   string bar(BAR_WIDTH, '.');
   vector<const Job *> sorted;
   for (auto &[id, job] : jobs_.activeJobs())
@@ -208,7 +199,8 @@ void Visualizer::printMemoryMap() const {
 
   // Legend
   if (sorted.empty()) {
-    cout << "  ║ " << padRight("(all memory free)", INNER_W - 1) << "║" << endl;
+    cout << "  ║ " << padRight("(all memory free)", INNER_W - 1) << "║"
+         << endl;
   } else {
     ostringstream legend;
     for (auto *job : sorted) {
@@ -228,16 +220,14 @@ void Visualizer::printMemoryMap() const {
 void Visualizer::printBlockLayout() const {
   int total = gpu_.config().totalVRAM;
 
-  // Build a combined sorted list of all segments (used + free)
   struct Segment {
     int start, length;
-    string owner; // job ID or "FREE"
+    string owner;
     char label;
   };
 
   vector<Segment> segments;
 
-  // Used segments from jobs
   vector<const Job *> sorted;
   for (auto &[id, job] : jobs_.activeJobs())
     sorted.push_back(&job);
@@ -267,8 +257,8 @@ void Visualizer::printBlockLayout() const {
     range << setw(5) << right << seg.start << " – " << setw(5) << left
           << (seg.start + seg.length - 1);
     string tag = (seg.owner == "FREE")
-                          ? "\033[32m FREE \033[0m"               // green
-                          : "\033[33m " + seg.owner + " \033[0m"; // yellow
+                     ? "\033[32m FREE \033[0m"
+                     : "\033[33m " + seg.owner + " \033[0m";
 
     cout << "  " << range.str() << "  :  " << tag << "  (" << seg.length
          << " units)" << endl;
@@ -286,45 +276,55 @@ int Visualizer::fragmentationScore() const {
   if (freeMem == 0)
     return 0;
   int largest = gpu_.memory().largestFreeBlock();
-  // score: 0 when all free memory is contiguous, 100 when maximally split
   double ratio = 1.0 - (double)largest / freeMem;
   return (int)(ratio * 100);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Status — combined view
+// Status — combined view (Phase 2: includes tick, pending, buffer info)
 // ─────────────────────────────────────────────────────────────────────────────
 
 void Visualizer::printStatus() const {
-  const int BOX_W = 54; // inner width between │ and │  (visible chars)
+  const int BOX_W = 60;
   int total = gpu_.config().totalVRAM;
   int used = gpu_.usedMemory();
   int free = gpu_.freeMemory();
   int largest = gpu_.memory().largestFreeBlock();
   int fragScore = fragmentationScore();
   int activeCount = (int)jobs_.activeJobs().size();
+  int pendingCount = (int)sched_.pendingQueue().size();
+  int bufferCount = (int)sched_.buffer().size();
+  int tick = sched_.currentTick();
 
   auto row = [&](const string &content) {
     cout << "  │" << padRight(content, BOX_W) << "│" << endl;
   };
 
   cout << endl;
-  cout << "  ┌─────────────────── System Status ────────────────────┐" << endl;
+  cout << "  ┌──────────────────────── System Status "
+       << "─────────────────────┐" << endl;
 
   {
     ostringstream o;
-    o << "  Total Memory     : " << setw(6) << total << " units";
+    o << "  Tick              : " << setw(6) << tick;
+    if (sched_.isPaused())
+    o << "  ⏸ PAUSED          ";
     row(o.str());
   }
   {
     ostringstream o;
-    o << "  Used  Memory     : " << setw(6) << used << " units  (" << fixed
+    o << "  Total Memory      : " << setw(6) << total << " units";
+    row(o.str());
+  }
+  {
+    ostringstream o;
+    o << "  Used  Memory      : " << setw(6) << used << " units  (" << fixed
       << setprecision(1) << (gpu_.utilization() * 100) << "%)";
     row(o.str());
   }
   {
     ostringstream o;
-    o << "  Free  Memory     : " << setw(6) << free << " units";
+    o << "  Free  Memory      : " << setw(6) << free << " units";
     row(o.str());
   }
   {
@@ -334,16 +334,35 @@ void Visualizer::printStatus() const {
   }
   {
     ostringstream o;
-    o << "  Fragmentation    :   " << setw(3) << fragScore << "%";
+    o << "  Fragmentation     :   " << setw(3) << fragScore << "%";
     row(o.str());
   }
   {
     ostringstream o;
-    o << "  Active Jobs      :     " << setw(3) << activeCount;
+    o << "  Running Jobs      :     " << setw(3) << activeCount;
+    row(o.str());
+  }
+  {
+    ostringstream o;
+    o << "  Pending Jobs      :     " << setw(3) << pendingCount;
+    row(o.str());
+  }
+  {
+    ostringstream o;
+    o << "  Buffered (CPU)    :     " << setw(3) << bufferCount << " / "
+      << Scheduler::BUFFER_CAP;
+    row(o.str());
+  }
+  {
+    ostringstream o;
+    o << "  Admission Queues  : user=" << sched_.userQueueSize()
+      << "  file=" << sched_.fileQueueSize()
+      << "  upcoming=" << sched_.fileJobsRemaining();
     row(o.str());
   }
 
-  cout << "  ├─────────────────── Job Statistics ───────────────────┤" << endl;
+  cout << "  ├──────────────────────── Job Statistics "
+       << "────────────────────┤" << endl;
   {
     ostringstream o;
     o << "  Submitted: " << setw(4) << jobs_.totalSubmitted()
@@ -351,7 +370,8 @@ void Visualizer::printStatus() const {
       << "   Failed: " << setw(4) << jobs_.totalFailed();
     row(o.str());
   }
-  cout << "  └──────────────────────────────────────────────────────┘" << endl;
+  cout << "  └────────────────────────────────────────────────────────────┘"
+       << endl;
   cout << endl;
 }
 
@@ -366,9 +386,90 @@ void Visualizer::printQuickBar() const {
   int filled = (total > 0) ? (int)((double)used / total * BAR_W) : 0;
 
   cout << "  Memory: [";
-  cout << "\033[33m" << repeat("█", filled) << "\033[0m"; // yellow for used
-  cout << "\033[32m" << repeat("░", BAR_W - filled)
-       << "\033[0m"; // green for free
+  cout << "\033[33m" << repeat("█", filled) << "\033[0m";
+  cout << "\033[32m" << repeat("░", BAR_W - filled) << "\033[0m";
   cout << "] " << used << "/" << total << " units (" << fixed
        << setprecision(1) << (gpu_.utilization() * 100) << "%)" << endl;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Queue display — pending + admission queue info
+// ─────────────────────────────────────────────────────────────────────────────
+
+void Visualizer::printQueue() const {
+  const auto &pending = sched_.pendingQueue();
+
+  cout << endl;
+  cout << "  ┌───────────────────── Pending Queue (" << pending.size()
+       << "/" << Scheduler::QUEUE_LIMIT << ") ───────────────────┐"
+       << endl;
+
+  if (pending.empty()) {
+    cout << "  │  (empty)                                                     │"
+         << endl;
+  } else {
+    cout << "  │  #  JobID          Mem    Ticks  Priority  Score  Wait       │"
+         << endl;
+    cout << "  │   ─────────────────────────────────────────────────────────  │"
+         << endl;
+    int idx = 1;
+    for (auto &job : pending) {
+      ostringstream o;
+      o << "  " << setw(2) << idx++ << " " << padRight(job.id, 14)
+        << setw(5) << job.memoryUnits << "  " << setw(5) << job.remainingTicks
+        << "   " << padRight(priorityToString(job.basePriority), 8)
+        << setw(5) << job.priorityScore << "  " << setw(4) << job.waitTicks
+        << "t";
+      cout << "  │" << padRight(o.str(), 62) << "│" << endl;
+    }
+  }
+
+  cout << "  ├───────────────────── Admission Queues ───────────────────────┤"
+       << endl;
+  {
+    ostringstream o;
+    o << "  User queue: " << sched_.userQueueSize()
+      << "   File queue: " << sched_.fileQueueSize()
+      << "   File jobs remaining: " << sched_.fileJobsRemaining();
+    cout << "  │" << padRight(o.str(), 62) << "│" << endl;
+  }
+  cout << "  └──────────────────────────────────────────────────────────────┘"
+       << endl;
+  cout << endl;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Buffer display — evicted jobs in CPU memory
+// ─────────────────────────────────────────────────────────────────────────────
+
+void Visualizer::printBuffer() const {
+  const auto &buf = sched_.buffer();
+
+  cout << endl;
+  cout << "  ┌───────────────────── CPU Buffer (" << buf.size() << "/"
+       << Scheduler::BUFFER_CAP << ") ─────────────────────┐"
+       << endl;
+
+  if (buf.empty()) {
+    cout << "  │  (empty — no evicted jobs)                                 │"
+         << endl;
+  } else {
+    cout << "  │  #  JobID          Mem    RemTicks  Priority  Source       │"
+         << endl;
+    cout << "  │  ───────────────────────────────────────────────────────── │"
+         << endl;
+    int idx = 1;
+    for (auto &job : buf) {
+      ostringstream o;
+      o << "  " << setw(2) << idx++ << " " << padRight(job.id, 14)
+        << setw(5) << job.memoryUnits << "  " << setw(8) << job.remainingTicks
+        << "  " << padRight(priorityToString(job.basePriority), 8) << "  "
+        << (job.fromFile ? "FILE" : "CLI ");
+      cout << "  │" << padRight(o.str(), 60) << "│" << endl;
+    }
+  }
+
+  cout << "  └────────────────────────────────────────────────────────────┘"
+       << endl;
+  cout << endl;
 }
