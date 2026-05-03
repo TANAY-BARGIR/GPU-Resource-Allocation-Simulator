@@ -93,7 +93,7 @@ void Visualizer::printGPUInfo() const {
     cout << "| " << padRight("  No running jobs found.", W - 4) << " |"
          << endl;
   } else {
-    cout << "| " << padRight("  JobID", 12) << padRight("Label", 6)
+    cout << "| " << padRight("  JobName", 12) << padRight("Label", 6)
          << padRight("Blocks", 16) << padRight("Memory", 8)
          << padRight("Priority", 10) << padRight("Remain", 8)
          << padRight("Status", W - 2 - 2 - 12 - 6 - 16 - 8 - 10 - 8) << " |"
@@ -408,7 +408,7 @@ void Visualizer::printQueue() const {
     cout << "  │  (empty)                                                     │"
          << endl;
   } else {
-    cout << "  │  #  JobID          Mem    Ticks  Priority  Score  Wait       │"
+    cout << "  │  #  JobName        Mem    Ticks  Priority  Score  Wait       │"
          << endl;
     cout << "  │   ─────────────────────────────────────────────────────────  │"
          << endl;
@@ -454,7 +454,7 @@ void Visualizer::printBuffer() const {
     cout << "  │  (empty — no evicted jobs)                                 │"
          << endl;
   } else {
-    cout << "  │  #  JobID          Mem    RemTicks  Priority  Source       │"
+    cout << "  │  #  JobName        Mem    RemTicks  Priority  Source       │"
          << endl;
     cout << "  │  ───────────────────────────────────────────────────────── │"
          << endl;

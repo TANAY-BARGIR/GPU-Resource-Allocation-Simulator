@@ -53,12 +53,12 @@ void CLI::printBanner() const {
   cout << R"(
    ╔═══════════════════════════════════════════════════════════════════╗
    ║                                                                   ║
-   ║    ██████╗ ██████╗ ██╗   ██╗     █████╗ ██╗     ██╗      ██████╗  ║
-   ║   ██╔════╝ ██╔══██╗██║   ██║    ██╔══██╗██║     ██║     ██╔═══██╗ ║
-   ║   ██║  ███╗██████╔╝██║   ██║    ███████║██║     ██║     ██║   ██║ ║
-   ║   ██║   ██║██╔═══╝ ██║   ██║    ██╔══██║██║     ██║     ██║   ██║ ║
-   ║   ╚██████╔╝██║     ╚██████╔╝    ██║  ██║███████╗███████╗╚██████╔╝ ║
-   ║    ╚═════╝ ╚═╝      ╚═════╝     ╚═╝  ╚═╝╚══════╝╚══════╝ ╚═════╝  ║
+   ║    ██████╗ ██████╗ ██╗   ██╗     █████╗ ██╗      ██████╗ ██╗  ██╗ ║
+   ║   ██╔════╝ ██╔══██╗██║   ██║    ██╔══██╗██║     ██╔═══██╗██║ ██╔╝ ║
+   ║   ██║  ███╗██████╔╝██║   ██║    ███████║██║     ██║   ██║█████╔╝  ║
+   ║   ██║   ██║██╔═══╝ ██║   ██║    ██╔══██║██║     ██║   ██║██╔═██╗  ║
+   ║   ╚██████╔╝██║     ╚██████╔╝    ██║  ██║███████╗╚██████╔╝██║  ██╗ ║
+   ║    ╚═════╝ ╚═╝      ╚═════╝     ╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═╝  ╚═╝ ║
    ║                                                                   ║
    ║          GPU Resource Allocator Simulator  v2.0                   ║
    ║          Priority-Driven Workload Scheduler                       ║
@@ -93,83 +93,83 @@ void CLI::printTickSummary() const {
 // ─────────────────────────────────────────────────────────────────────────────
 
 void CLI::cmdHelp() {
+  // ANSI helpers - keeps the lines below clean
+  const string B  = "\033[1m";   // bold
+  const string D  = "\033[2m";   // dim
+  const string R  = "\033[0m";   // reset
+
+  const int W = 68;              // visible inner width of the box
+
+  // Strip ANSI escape codes and return visible character count
+  auto visLen = [](const string &s) -> int {
+    int len = 0;
+    bool inEsc = false;
+    for (char c : s) {
+      if (c == '\033') { inEsc = true; continue; }
+      if (inEsc) { if (c == 'm') inEsc = false; continue; }
+      ++len;
+    }
+    return len;
+  };
+
+  // Print one line inside the box, auto-padded to width W
+  auto row = [&](const string &text) {
+    int vis = visLen(text);
+    int pad = W - vis;
+    if (pad < 0) pad = 0;
+    cout << "  |  " << text << string(pad, ' ') << "  |" << endl;
+  };
+
+  // Blank line inside the box
+  auto blank = [&]() {
+    cout << "  |" << string(W + 4, ' ') << "|" << endl;
+  };
+
+  string sep(W + 4, '-');
+
   cout << endl;
-  cout << "  ┌───────────────────────── Available Commands "
-          "───────────────────────────┐"
-       << endl;
-  cout << "  │                                                                  "
-          "      │"
-       << endl;
-  cout << "  │  \033[1msubmit\033[0m <id> <mem> <ticks> [IMP|HIGH|MID|LOW]  "
-          "Submit a job            │"
-       << endl;
-  cout << "  │  \033[1mrelease\033[0m <id>                    Manually release "
-          "a running job        │"
-       << endl;
-  cout << "  │  \033[1mexpand\033[0m <id> <extra_mem>          Expand a "
-          "running job's memory        │"
-       << endl;
-  cout << "  │  \033[1mload\033[0m <file>                      Load batch "
-          "jobs from file            │"
-       << endl;
-  cout << "  │  \033[1mtick\033[0m [n]                         Advance n "
-          "ticks manually             │"
-       << endl;
-  cout << "  │  \033[1mpause\033[0m                            Pause "
-          "automatic tick progression     │"
-       << endl;
-  cout << "  │  \033[1mresume\033[0m                           Resume "
-          "automatic ticks               │"
-       << endl;
-  cout << "  │  \033[1mqueue\033[0m                            Show pending "
-          "& admission queues      │"
-       << endl;
-  cout << "  │  \033[1mbuffer\033[0m                           Show CPU "
-          "buffer (evicted jobs)       │"
-       << endl;
-  cout << "  │  \033[1mstatus\033[0m                           System "
-          "status & job statistics       │"
-       << endl;
-  cout << "  │  \033[1mmap\033[0m                              GPU memory "
-          "map visualization         │"
-       << endl;
-  cout << "  │  \033[1mgpu-info\033[0m                         GPU hardware "
-          "details (SMI style)     │"
-       << endl;
-  cout << "  │  \033[1mfree\033[0m                             Largest "
-          "contiguous free block        │"
-       << endl;
-  cout << "  │  \033[1mclear\033[0m / \033[1mhelp\033[0m / "
-          "\033[1mexit\033[0m                                    "
-          "               │"
-       << endl;
-  cout << "  │                                                                  "
-          "      │"
-       << endl;
-  cout << "  │  \033[2mExamples:\033[0m                                        "
-          "                     │"
-       << endl;
-  cout << "  │    > submit jobA 256 15 HIGH                                     "
-          "      │"
-       << endl;
-  cout << "  │    > load jobs.txt                                               "
-          "      │"
-       << endl;
-  cout << "  │    > expand jobA 100                                             "
-          "      │"
-       << endl;
-  cout << "  │    > tick 5                                                      "
-          "      │"
-       << endl;
-  cout << "  │                                                                  "
-          "      │"
-       << endl;
-  cout << "  "
-          "└────────────────────────────────────────────────────────────────────"
-          "────┘"
-       << endl;
+  cout << "  +" << sep << "+" << endl;
+  blank();
+
+  // Title
+  row("Available Commands");
+  blank();
+
+  // Main command: submit
+  row(B + "submit" + R + "  <jobname> <mem> <ticks> [IMP|HIGH|MID|LOW]");
+  row("         Submit a job with name, memory, ticks & priority");
+  blank();
+
+  // Other commands
+  row(B + "release" + R + " <jobname>           Manually release a running job");
+  row(B + "expand"  + R + "  <jobname> <extra>   Expand a running job's memory");
+  row(B + "load"    + R + "    <file>            Load batch jobs from file");
+  row(B + "tick"    + R + "    [n]               Advance n ticks manually");
+  row(B + "pause"   + R + "                      Pause automatic tick progression");
+  row(B + "resume"  + R + "                      Resume automatic ticks");
+  row(B + "queue"   + R + "                      Show pending & admission queues");
+  row(B + "buffer"  + R + "                      Show CPU buffer (evicted jobs)");
+  row(B + "status"  + R + "                      System status & job statistics");
+  row(B + "map"     + R + "                      GPU memory map visualization");
+  row(B + "gpu-info" + R + "                     GPU hardware details (SMI style)");
+  row(B + "free"    + R + "                      Largest contiguous free block");
+  row(B + "clear" + R + " / " + B + "help" + R + " / " + B + "exit" + R);
+  blank();
+
+  // Examples
+  row(D + "Examples:" + R);
+  row("  > submit myJob 256 15 HIGH");
+  row("  > load jobs.txt");
+  row("  > expand myJob 100");
+  row("  > tick 5");
+  blank();
+
+  cout << "  +" << sep << "+" << endl;
   cout << endl;
 }
+
+
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Command handlers
@@ -177,7 +177,7 @@ void CLI::cmdHelp() {
 
 void CLI::cmdSubmit(const vector<string> &args) {
   if (args.size() < 4) {
-    cout << "  ✗ Usage: submit <jobID> <memory> <ticks> [IMP|HIGH|MID|LOW]"
+    cout << "  ✗ Usage: submit <jobname> <memory> <ticks> [IMP|HIGH|MID|LOW]"
          << endl;
     return;
   }
@@ -213,7 +213,7 @@ void CLI::cmdSubmit(const vector<string> &args) {
 
 void CLI::cmdRelease(const vector<string> &args) {
   if (args.size() < 2) {
-    cout << "  ✗ Usage: release <jobID>" << endl;
+    cout << "  ✗ Usage: release <jobname>" << endl;
     return;
   }
   string msg;
@@ -227,7 +227,7 @@ void CLI::cmdRelease(const vector<string> &args) {
 
 void CLI::cmdExpand(const vector<string> &args) {
   if (args.size() < 3) {
-    cout << "  ✗ Usage: expand <jobID> <extra_memory>" << endl;
+    cout << "  ✗ Usage: expand <jobname> <extra_memory>" << endl;
     return;
   }
   int extraMem = 0;
